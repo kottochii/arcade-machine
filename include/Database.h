@@ -18,13 +18,15 @@
 
 class Database {
     private:
-        std::string m_databaseName;
         std::string m_databaseFileName;
         std::vector<Table*> m_tables;
 
     public:
 
-
+        /**
+         * Opens a connection to the database. 
+         * If this returns true (ie. the connection has been established), the sqlite3* pointer will have to be properly disposed of by sqlite3_close_v2
+         */
         bool open_db (sqlite3** _db, bool readonly, int* err_code)
         {
             int flags = SQLITE_OPEN_CREATE;
@@ -41,9 +43,9 @@ class Database {
         }
     
         // Constructors
-        Database(){
-            m_databaseName = "arcadeMachine";
-            m_databaseFileName = "arcadeMachine.db";
+        Database()
+            : m_databaseFileName ("arcadeMachine.db")
+        {
             sqlite3* m_db;
             bool success = open_db(&m_db, DB_OPEN_READWRITE, nullptr);
             if(!success)
@@ -56,10 +58,9 @@ class Database {
             }
         };
 
-        Database(std::string databaseName, std::string databaseFileName){
-            m_databaseName = databaseName;
-            m_databaseFileName = databaseFileName;
-
+        Database(std::string databaseFileName)
+            : m_databaseFileName (databaseFileName)
+        {
             sqlite3* m_db;
             bool success = open_db(&m_db, DB_OPEN_READWRITE, nullptr);
             if(!success)
@@ -74,17 +75,13 @@ class Database {
 
         ~Database()
         {
-            std::cout << "Destructor called on database: \"" << m_databaseName << "\"\n";
+            std::cout << "Destructor called on database: \"" << m_databaseFileName << "\"\n";
             std::cout << "Database: Clearing table memory...\n";
             for (auto& table : m_tables) delete table;
             m_tables.clear();
         }
 
         // Getters
-        std::string getDatabaseName(){
-            return m_databaseName;
-        };
-
         std::string getDatabaseFileName(){
             return m_databaseFileName;
         };
