@@ -188,15 +188,6 @@ class GameData
             std::cout << "==================" << std::endl;
         }
 
-        // Returns the current row as a vector of strings
-        vector<string> get_current_row_strings(query_result res) {
-            vector<string> row;
-            for (int i = 0; i < query_column_count(res); i++) {
-                row.push_back(query_column_for_string(res, i));
-            }
-            return row;
-        }
-
         //get the stats for a specific game
         // Average rating of a game
         // Total time played of a game in seconds (stored in both start and end time)
@@ -204,30 +195,36 @@ class GameData
         GameData getStats(Database *db, string gameName)
         {
             GameData game = GameData();
-            database dataBase;
-            query_result result = db->queryDatabase(dataBase, "SELECT gameName, AVG(rating) AS averageRating, SUM(endTime-startTime) AS totalPlaytime, MAX(highScore) as highscore FROM gameData WHERE gameName='" + gameName + "';");
-            if (query_success(result))
-            {
-                std::cout << "Query success" << std::endl;
-                if (has_row(result))
-                {
-                    if (query_type_of_col(result, 0) == "NULL")
-                    {
-                        std::cout << "No data returned from query!" << std::endl;
-                        return game;
-                    }
-                    game.setGameName(query_column_for_string(result, 0));
-                    game.setRating(query_column_for_double(result, 1));
-                    game.setStartTime(query_column_for_int(result, 2));
-                    game.setEndTime(query_column_for_int(result,2));
-                    game.setHighScore(query_column_for_int(result,3));
-                }
+            sqlite3* m_db;
+            bool success = db->open_db(&m_db, DB_OPEN_READONLY, nullptr);
+            if(!success) {
+                std::cerr << "Failed to open database: " << sqlite3_errmsg(m_db) << std::endl;
+                return game;
             }
-            else {
+            sqlite3_stmt* stmt;
+            int rc = sqlite3_prepare_v2(m_db, std::string{"SELECT gameName, AVG(rating) AS averageRating, SUM(endTime-startTime) AS totalPlaytime, MAX(highScore) as highscore FROM gameData WHERE gameName = '" + gameName + "';"}.c_str(), -1, &stmt, nullptr);
+            if(rc != SQLITE_OK) {
+                std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(m_db) << std::endl;
+                sqlite3_close_v2(m_db);
+                return game;
+            }
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                if (sqlite3_column_type(stmt, 0) == SQLITE_NULL) {
+                    std::cout << "No data returned from query!" << std::endl;
+                    sqlite3_finalize(stmt);
+                    sqlite3_close_v2(m_db);
+                    return game;
+                }
+                game.setGameName(std::string{reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))});
+                game.setRating(sqlite3_column_double(stmt, 1));
+                game.setStartTime(sqlite3_column_int(stmt, 2));
+                game.setEndTime(sqlite3_column_int(stmt, 2));
+                game.setHighScore(sqlite3_column_int(stmt, 3));
+            } else {
                 std::cout << "Query failed" << std::endl;
             }
-            free_all_query_results();
-            free_database(dataBase);
+            sqlite3_finalize(stmt);
+            sqlite3_close_v2(m_db);
             return game;
         }
 
@@ -235,35 +232,41 @@ class GameData
         // Average rating of a vector of games
         // Total time played of a vector of games in seconds (stored in both start and end time)
         // Max high score of a vector of games
+        // TODO: implement control over entities
         std::vector<GameData> getAllStats(Database *db) { 
             std::vector<GameData> stats;
             GameData game = GameData();
-            database dataBase;
-            query_result result = db->queryDatabase(dataBase, "SELECT gameName, AVG(rating) AS averageRating, SUM(endTime-startTime) AS totalPlaytime, MAX(highScore) as highscore FROM gameData GROUP BY gameName;");
-            if (query_success(result))
-            {
-                if (has_row(result))
-                {
-                    if (query_type_of_col(result, 0) == "NULL")
-                    {
-                        std::cout << "No data returned from query!" << std::endl;
-                        return stats;
-                    }
-                    do {
-                        game.setGameName(query_column_for_string(result, 0));
-                        game.setRating(query_column_for_double(result, 1));
-                        game.setStartTime(query_column_for_int(result, 2));
-                        game.setEndTime(query_column_for_int(result,2));
-                        game.setHighScore(query_column_for_int(result,3));
-                        stats.push_back(game);
-                    } while(get_next_row(result));
-                }
+            sqlite3* m_db;
+            bool success = db->open_db(&m_db, DB_OPEN_READONLY, nullptr);
+            if(!success) {
+                std::cerr << "Failed to open database: " << sqlite3_errmsg(m_db) << std::endl;
+                return stats;
             }
-            else {
+            const auto query = "SELECT gameName, AVG(rating) AS averageRating, SUM(endTime-startTime) AS totalPlaytime, MAX(highScore) as highscore FROM gameData GROUP BY gameName;";
+            sqlite3_stmt* stmt;
+            int rc = sqlite3_prepare_v2(m_db, query, -1, &stmt, nullptr);
+            if(rc != SQLITE_OK) {
+                std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(m_db) << std::endl;
+                sqlite3_close_v2(m_db);
+                return stats;
+            }
+            while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                if (sqlite3_column_type(stmt, 0) == SQLITE_NULL) {
+                    std::cout << "No data returned from query!" << std::endl;
+                    break;
+                }
+                game.setGameName(std::string{reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))});
+                game.setRating(sqlite3_column_double(stmt, 1));
+                game.setStartTime(sqlite3_column_int(stmt, 2));
+                game.setEndTime(sqlite3_column_int(stmt, 2));
+                game.setHighScore(sqlite3_column_int(stmt, 3));
+                stats.push_back(game);
+            }
+            if(rc != SQLITE_DONE) {
                 std::cout << "Query failed" << std::endl;
             }
-            free_all_query_results();
-            free_database(dataBase);
+            sqlite3_finalize(stmt);
+            sqlite3_close_v2(m_db);
             return stats;
         }
 

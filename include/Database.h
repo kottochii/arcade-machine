@@ -1,6 +1,8 @@
 #ifndef ARCADE_MACHINE_DATABASE_H
 #define ARCADE_MACHINE_DATABASE_H
 
+// TODO: figure out a way to keep persistent connections for a while
+
 #include <iostream>
 #include <string>
 #include <vector>
@@ -8,6 +10,11 @@
 #include "Table.h"
 #include <map>
 #include <tuple>
+#include <sqlite3.h>
+#include <memory>
+
+#define DB_OPEN_READONLY true
+#define DB_OPEN_READWRITE false
 
 class Database {
     private:
@@ -16,19 +23,53 @@ class Database {
         std::vector<Table*> m_tables;
 
     public:
+
+
+        bool open_db (sqlite3** _db, bool readonly, int* err_code)
+        {
+            int flags = SQLITE_OPEN_CREATE;
+
+            // known issue: readonly access is not working
+            // if(!readonly)
+                flags |= SQLITE_OPEN_READWRITE;
+                
+            int rc = sqlite3_open_v2(m_databaseFileName.c_str(), _db, flags, nullptr);
+            if (err_code) {
+                *err_code = rc;
+            }
+            return rc == SQLITE_OK;
+        }
+    
         // Constructors
         Database(){
             m_databaseName = "arcadeMachine";
             m_databaseFileName = "arcadeMachine.db";
-            database db = open_database(m_databaseName, m_databaseFileName);
-            free_database(db);
+            sqlite3* m_db;
+            bool success = open_db(&m_db, DB_OPEN_READWRITE, nullptr);
+            if(!success)
+            {
+                std::cerr << "Failed to open database: " << sqlite3_errmsg(m_db) << std::endl;
+            }
+            else
+            {
+                sqlite3_close_v2(m_db);
+            }
         };
 
         Database(std::string databaseName, std::string databaseFileName){
             m_databaseName = databaseName;
             m_databaseFileName = databaseFileName;
-            database db = open_database(m_databaseName, m_databaseFileName);
-            free_database(db);
+
+            sqlite3* m_db;
+            bool success = open_db(&m_db, DB_OPEN_READWRITE, nullptr);
+            if(!success)
+            {
+                std::cerr << "Failed to open database: " << sqlite3_errmsg(m_db) << std::endl;
+            }
+            else
+            {
+                sqlite3_close_v2(m_db);
+            }
         };
 
         ~Database()
@@ -57,7 +98,13 @@ class Database {
 
         // Creates a new table if it doesn't exist
         bool createTable(Table *table){
-            database db = open_database(m_databaseName, m_databaseFileName);
+            sqlite3* m_db;
+            bool success = open_db(&m_db, DB_OPEN_READWRITE, nullptr);
+            if(!success)
+            {
+                std::cerr << "Failed to open database: " << sqlite3_errmsg(m_db) << std::endl;
+                return false;
+            }
 
             // Add the table to the Databases vector of tables
             m_tables.push_back(table);
@@ -72,21 +119,26 @@ class Database {
             createTable += ")";
 
             // Execute the query
-            query_result res = run_sql(db, createTable);
-
-            free_database(db);
-
-            // Return true if the table was created
-            if (query_success(res)) {
-                std::cout << "Table created successfully" << std::endl;
-                free_all_query_results();
-                return true;
-            } else { // Return false if the table was not created
-                std::cout << "Table creation failed" << std::endl;
-                std::cout << createTable << std::endl;
-                free_all_query_results();
+            sqlite3_stmt* stmt;
+            int rc = sqlite3_prepare_v2(m_db, createTable.c_str(), -1, &stmt, nullptr);
+            if(rc != SQLITE_OK) {
+                std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(m_db) << std::endl;
+                sqlite3_close_v2(m_db);
                 return false;
             }
+            rc = sqlite3_step(stmt);
+            if(rc != SQLITE_DONE) {
+                std::cerr << "Failed to execute statement: " << sqlite3_errmsg(m_db) << std::endl;
+                sqlite3_finalize(stmt);
+                sqlite3_close_v2(m_db);
+                return false;
+            }
+
+            sqlite3_finalize(stmt);
+            sqlite3_close_v2(m_db);
+
+            std::cout << "Table \"" << table->getTableName() << "\" created successfully" << std::endl;
+            return true;
         };
 
         // Inserts a new row into a table
@@ -95,7 +147,13 @@ class Database {
             bool exists = std::get<0>(hasTable(tableName));
 
             if (exists) {
-                database db = open_database(m_databaseName, m_databaseFileName);
+                sqlite3* m_db;
+                bool success = open_db(&m_db, DB_OPEN_READWRITE, nullptr);
+                if(!success)
+                {
+                    std::cerr << "Failed to open database: " << sqlite3_errmsg(m_db) << std::endl;
+                    return false;
+                }
 
                 // Create the query
                 std::string insertData = "INSERT INTO " + tableName + " (";
@@ -112,20 +170,27 @@ class Database {
                 insertData += ")";
 
                 // Execute the query
-                query_result res = run_sql(db, insertData);
-                free_database(db);
-
-                // Return true if the row was inserted
-                if (query_success(res)) {
-                    std::cout << "Data inserted successfully" << std::endl;
-                    free_all_query_results();
-                    return true;
-                } else { // Return false if the row was not inserted
-                    std::cout << "Data insertion failed" << std::endl;
-                    std::cout << insertData << std::endl;
-                    free_all_query_results();
+                sqlite3_stmt* stmt;
+                int rc = sqlite3_prepare_v2(m_db, insertData.c_str(), -1, &stmt, nullptr);
+                if(rc != SQLITE_OK) {
+                    std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(m_db) << std::endl;
+                    sqlite3_close_v2(m_db);
                     return false;
                 }
+                rc = sqlite3_step(stmt);
+                if(rc != SQLITE_DONE) {
+                    std::cerr << "Failed to execute statement: " << sqlite3_errmsg(m_db) << std::endl;
+                    sqlite3_finalize(stmt);
+                    sqlite3_close_v2(m_db);
+                    return false;
+                }
+
+                sqlite3_finalize(stmt);
+                sqlite3_close_v2(m_db);
+                std::cout << "Data inserted successfully" << std::endl;
+                return true;
+
+
             } else { // Return false if the table does not exist
                 std::cout << "Table does not exist" << std::endl;
                 return false;
@@ -144,13 +209,25 @@ class Database {
 
             if (exists) {
                 std::vector<std::vector<string>> data;
-                database db = open_database(m_databaseName, m_databaseFileName);
+                sqlite3* m_db;
+                bool success = open_db(&m_db, DB_OPEN_READONLY, nullptr);
+                if(!success)
+                {
+                    std::cerr << "Failed to open database: " << sqlite3_errmsg(m_db) << std::endl;
+                    return std::vector<std::vector<std::string>>();
+                }
 
                 // Create the query
                 string query = "SELECT * FROM " + tableName;
 
                 // Execute the query
-                query_result res = run_sql(db, query);
+                sqlite3_stmt* stmt;
+                int rc = sqlite3_prepare_v2(m_db, query.c_str(), -1, &stmt, nullptr);
+                if(rc != SQLITE_OK) {
+                    std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(m_db) << std::endl;
+                    sqlite3_close_v2(m_db);
+                    return std::vector<std::vector<std::string>>();
+                }
 
                 // Add the column names to the data vector first
                 std::vector<std::string> columnNames;
@@ -160,26 +237,26 @@ class Database {
                 data.push_back(columnNames);
 
                 // Add the data to the data vector
-                while (has_row(res)) {
+                int last_result;
+                while ((last_result = sqlite3_step(stmt)) == SQLITE_ROW) {
                     // Get each row as a vector of strings
-                    std::vector<std::string> row = get_current_row_strings(res);
+                    std::vector<std::string> row = get_current_row_strings(stmt);
 
                     data.push_back(row);
-
-                    if (!get_next_row(res)) {
-                        break;
-                    }
                 }
+
+                if(last_result != SQLITE_DONE) {
+                    std::cerr << "Failed to execute statement, still returning data: " << sqlite3_errmsg(m_db) << std::endl;
+                    sqlite3_finalize(stmt);
+                    sqlite3_close_v2(m_db);
+                    return data;
+                }
+
+                sqlite3_finalize(stmt);
+                sqlite3_close_v2(m_db);
 
                 // Return the data
-                if (query_success(res)) {
-                    std::cout << "Data returned successfully" << std::endl;
-                } else {
-                    std::cout << "Data return failed" << std::endl;
-                    std::cout << query << std::endl;
-                }
-                free_database(db);
-                free_all_query_results();
+                std::cout << "Data returned successfully" << std::endl;
                 return data;
 
             } else { // Return an empty vector if the table does not exist
@@ -200,13 +277,25 @@ class Database {
 
             if (exists) {
 
-                database db = open_database(m_databaseName, m_databaseFileName);
+                sqlite3* m_db;
+                bool success = open_db(&m_db, DB_OPEN_READONLY, nullptr);
+                if(!success)
+                {
+                    std::cerr << "Failed to open database: " << sqlite3_errmsg(m_db) << std::endl;
+                    return false;
+                }
 
                 // Create the query
                 string query = "SELECT * FROM " + tableName;
 
                 // Execute the query
-                query_result res = run_sql(db, query);
+                sqlite3_stmt* stmt;
+                int rc = sqlite3_prepare_v2(m_db, query.c_str(), -1, &stmt, nullptr);
+                if(rc != SQLITE_OK) {
+                    std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(m_db) << std::endl;
+                    sqlite3_close_v2(m_db);
+                    return false;
+                }
 
                 // Print the column names
                 for (auto const& pair: table->getColumnNames()) {
@@ -218,31 +307,21 @@ class Database {
                 std::cout << std::endl;
 
                 // Print the data
-                while (has_row(res)) {
-                    std::vector<std::string> row = get_current_row_strings(res);
+                while (sqlite3_step(stmt) == SQLITE_ROW) {
+                    std::vector<std::string> row = get_current_row_strings(stmt);
 
                     for (int i = 0; i < row.size(); i++) {
                         std::cout << row[i] << " | ";
                     }
                     std::cout << std::endl;
-
-                    if (!get_next_row(res)) {
-                        break;
-                    }
                 }
-                free_database(db);
+                sqlite3_finalize(stmt);
+                sqlite3_close_v2(m_db);
 
                 // Return true if the data was printed
-                if (query_success(res)) {
-                    std::cout << "Data printed successfully" << std::endl;
-                    free_all_query_results();
-                    return true;
-                } else { // Return false if the data was not printed
-                    std::cout << "Data print failed" << std::endl;
-                    std::cout << query << std::endl;
-                    free_all_query_results();
-                    return false;
-                }
+                std::cout << "Data printed successfully" << std::endl;
+                return true;
+
             } else { // Return false if the table does not exist
                 std::cout << "Table does not exist" << std::endl;
                 return false;
@@ -255,7 +334,12 @@ class Database {
             bool exists = std::get<0>(hasTable(tableName));
 
             if (exists) {
-                database db = open_database(m_databaseName, m_databaseFileName);
+                sqlite3* m_db;
+                bool success = open_db(&m_db, DB_OPEN_READWRITE, nullptr);
+                if(!success)                {
+                    std::cerr << "Failed to open database: " << sqlite3_errmsg(m_db) << std::endl;
+                    return false;
+                }
 
                 // Create the query
                 std::string query = "DELETE FROM " + tableName + " WHERE ";
@@ -266,22 +350,25 @@ class Database {
                 query += ";";
 
                 // Execute the query
-                query_result res = run_sql(db, query);
-
-
-                free_database(db);
-
-                // Return true if the row was deleted
-                if (query_success(res)) {
-                    std::cout << "Data deleted successfully" << std::endl;
-                    free_all_query_results();
-                    return true;
-                } else { // Return false if the row was not deleted
-                    std::cout << "Data deletion failed" << std::endl;
-                    std::cout << query << std::endl;
-                    free_all_query_results();
+                sqlite3_stmt* stmt;
+                int rc = sqlite3_prepare_v2(m_db, query.c_str(), -1, &stmt, nullptr);
+                if(rc != SQLITE_OK) {
+                    std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(m_db) << std::endl;
+                    sqlite3_close_v2(m_db);
                     return false;
                 }
+                rc = sqlite3_step(stmt);
+                if(rc != SQLITE_DONE) {
+                    std::cerr << "Failed to execute statement: " << sqlite3_errmsg(m_db) << std::endl;
+                    sqlite3_finalize(stmt);
+                    sqlite3_close_v2(m_db);
+                    return false;
+                }
+
+                sqlite3_finalize(stmt);
+                sqlite3_close_v2(m_db);
+                return true;
+
             } else { //     Return false if the table does not exist
                 std::cout << "Table does not exist" << std::endl;
                 return false;
@@ -298,7 +385,12 @@ class Database {
             bool exists = std::get<0>(hasTable(tableName));
 
             if (exists) {
-                database db = open_database(m_databaseName, m_databaseFileName);
+                sqlite3* m_db;
+                bool success = open_db(&m_db, DB_OPEN_READWRITE, nullptr);
+                if(!success)                {
+                    std::cerr << "Failed to open database: " << sqlite3_errmsg(m_db) << std::endl;
+                    return false;
+                }
 
                 // Create the query
                 std::string query = "UPDATE " + tableName + " SET ";
@@ -314,20 +406,26 @@ class Database {
                 query += ";";
 
                 // Execute the query
-                query_result res = run_sql(db, query);
-
-                free_database(db);
-                // Return true if the row was updated
-                if (query_success(res)) {
-                    std::cout << "Data updated successfully" << std::endl;
-                    free_all_query_results();
-                    return true;
-                } else { // Return false if the row was not updated
-                    std::cout << "Data update failed" << std::endl;
-                    std::cout << query << std::endl;
-                    free_all_query_results();
+                sqlite3_stmt* stmt;
+                int rc = sqlite3_prepare_v2(m_db, query.c_str(), -1, &stmt, nullptr);
+                if(rc != SQLITE_OK) {
+                    std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(m_db) << std::endl;
+                    sqlite3_close_v2(m_db);
                     return false;
                 }
+                rc = sqlite3_step(stmt);
+                if(rc != SQLITE_DONE) {
+                    std::cerr << "Failed to execute statement: " << sqlite3_errmsg(m_db) << std::endl;
+                    sqlite3_finalize(stmt);
+                    sqlite3_close_v2(m_db);
+                    return false;
+                }
+
+                // Return true if the row was updated
+                std::cout << "Data updated successfully" << std::endl;
+                sqlite3_finalize(stmt);
+                sqlite3_close_v2(m_db);
+                return true;
             } else {   // Return false if the table does not exist
                 std::cout << "Table does not exist" << std::endl;
                 return false;
@@ -339,23 +437,33 @@ class Database {
             // Check if table exists
             bool exists = std::get<0>(hasTable(tableName));
             if (exists) {
-                database db = open_database(m_databaseName, m_databaseFileName);
+                sqlite3* m_db;
+                bool success = open_db(&m_db, DB_OPEN_READWRITE, nullptr);
+                if(!success)                {
+                    std::cerr << "Failed to open database: " << sqlite3_errmsg(m_db) << std::endl;
+                    return false;
+                }
                 // Create the query
                 std::string query = "DROP TABLE " + tableName;
                 // Execute the query
-                query_result res = run_sql(db, query);
-
-                free_database(db);
-                if (query_success(res)) { // Return true if the table was dropped
-                    std::cout << "Table dropped successfully" << std::endl;
-                    free_all_query_results();
-                    return true;
-                } else { // Return false if the table was not dropped
-                    std::cout << "Table drop failed" << std::endl;
-                    std::cout << query << std::endl;
-                    free_all_query_results();
+                sqlite3_stmt* stmt;
+                int rc = sqlite3_prepare_v2(m_db, query.c_str(), -1, &stmt, nullptr);
+                if(rc != SQLITE_OK) {
+                    std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(m_db) << std::endl;
+                    sqlite3_close_v2(m_db);
                     return false;
                 }
+                rc = sqlite3_step(stmt);
+                if(rc != SQLITE_DONE) {
+                    std::cerr << "Failed to execute statement: " << sqlite3_errmsg(m_db) << std::endl;
+                    sqlite3_finalize(stmt);
+                    sqlite3_close_v2(m_db);
+                    return false;
+                }
+                sqlite3_finalize(stmt);
+                sqlite3_close_v2(m_db);
+                return true;
+
             } else { // Return false if the table does not exist
                 std::cout << "Table does not exist" << std::endl;
                 return false;
@@ -375,7 +483,12 @@ class Database {
 
             if (exists) {
                 std::vector<std::vector<std::string>> data;
-                database db = open_database(m_databaseName, m_databaseFileName);
+                sqlite3* m_db;
+                bool success = open_db(&m_db, DB_OPEN_READONLY, nullptr);
+                if(!success) {
+                    std::cerr << "Failed to open database: " << sqlite3_errmsg(m_db) << std::endl;
+                    return std::vector<std::vector<std::string>>();
+                }
 
                 // Create the query
                 std::string query = "SELECT * FROM " + tableName + " WHERE ";
@@ -385,7 +498,13 @@ class Database {
                 query = query.substr(0, query.size() - 5);
                 query += ";";
                 // Execute the query
-                query_result res = run_sql(db, query);
+                sqlite3_stmt* stmt;
+                int rc = sqlite3_prepare_v2(m_db, query.c_str(), -1, &stmt, nullptr);
+                if(rc != SQLITE_OK) {
+                    std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(m_db) << std::endl;
+                    sqlite3_close_v2(m_db);
+                    return std::vector<std::vector<std::string>>();
+                }
 
                 // Add the column names to the data vector first
                 std::vector<std::string> columnNames;
@@ -395,26 +514,24 @@ class Database {
                 data.push_back(columnNames);
 
                 // Add the data to the data vector
-                while (has_row(res)) {
+                int last_step;
+                while ((last_step = sqlite3_step(stmt)) == SQLITE_ROW) {
                     // Get each row as a vector of strings
-                    std::vector<std::string> row = get_current_row_strings(res);
+                    std::vector<std::string> row = get_current_row_strings(stmt);
 
                     data.push_back(row);
 
-                    if (!get_next_row(res)) {
-                        break;
-                    }
                 }
 
                 // Return the data
-                if (query_success(res)) {
+                if (last_step == SQLITE_DONE) {
                     std::cout << "Data returned successfully" << std::endl;
                 } else {
                     std::cout << "Data return failed" << std::endl;
                     std::cout << query << std::endl;
                 }
-                free_database(db);
-                free_all_query_results();
+                sqlite3_finalize(stmt);
+                sqlite3_close_v2(m_db);
                 return data;
             } else { // Return an empty vector if the table does not exist
                 std::cout << "Table does not exist" << std::endl;
@@ -423,10 +540,10 @@ class Database {
         };
 
         // Returns the current row as a vector of strings
-        std::vector<std::string> get_current_row_strings(query_result res) {
-            vector<string> row;
-            for (int i = 0; i < query_column_count(res); i++) {
-                row.push_back(query_column_for_string(res, i));
+        std::vector<std::string> get_current_row_strings(sqlite3_stmt* stmt) {
+            std::vector<std::string> row;
+            for (int i = 0; i < sqlite3_column_count(stmt); i++) {
+                row.push_back(std::string{reinterpret_cast<const char*>(sqlite3_column_text(stmt, i))});
             }
             return row;
         }
@@ -448,15 +565,6 @@ class Database {
             exists = std::make_tuple(false, nullptr);
             return exists;
         };
-
-        //Query a database table with a specialised query.
-        //Returns query_result object.
-        query_result queryDatabase(database &db, std::string query)
-        {
-            db = open_database(m_databaseName, m_databaseFileName);
-            query_result res = run_sql(db, query);
-            return res;
-        }
 };
 
 

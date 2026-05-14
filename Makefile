@@ -3,7 +3,7 @@ CXX = skm g++ $(INCDIRS)
 src = $(wildcard src/*.cpp)
 obj = $(src:.cpp=.o)
 
-LDFLAGS = -std=c++14
+LDFLAGS = -std=c++14 -lsqlite3
 
 ifeq ($(OS),Windows_NT)
     LDFLAGS += -lstdc++fs
