@@ -11,7 +11,7 @@
 #define ARCADE_MACHINE_PATH_SEP "/"
 #endif
 
-#ifdef __arm__
+#if defined(__arm__) || defined(__aarch64__)
 #define ARCADE_MACHINE_INSTRUCTION_SET "arm"
 #else
 #define ARCADE_MACHINE_INSTRUCTION_SET "x86"

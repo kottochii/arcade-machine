@@ -1,5 +1,5 @@
 INCDIRS = -Iinclude
-CXX = skm g++ $(INCDIRS)
+CXX = skm g++ $(INCDIRS) -Ofast
 src = $(wildcard src/*.cpp)
 obj = $(src:.cpp=.o)
 
@@ -13,8 +13,6 @@ else
         LDFLAGS += -lstdc++fs
     endif
 endif
-
-OSFLAGS = -O3
 
 ArcadeMachine: $(obj)
 	-.scripts/generate-stats.sh
