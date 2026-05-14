@@ -16,7 +16,7 @@ endif
 
 ArcadeMachine: $(obj)
 	-.scripts/generate-stats.sh
-	$(CXX) -o $@ $^ $(LDFLAGS) $(OSFLAGS)
+	$(CXX) -o $@ $^ $(LDFLAGS) 
 
 clean:
 	rm $(obj)
