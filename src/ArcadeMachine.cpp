@@ -342,15 +342,84 @@ void ArcadeMachine::playArcadeTeamIntro()
 */
 void ArcadeMachine::playSplashKitIntro()
 {
+    using namespace std::string_literals;
     // Pull the most recent version of the arcade-games repo.
-    do
+    constexpr int max_tries = 3;
+    for(int i = 1; i <= max_tries; i++)
     {
-        // Draw SplashKit productions screen
+        process_events();
+        clear_screen();
         this->m_introSplashkit.drawTitlePage();
-        draw_text("Loading...", COLOR_SLATE_GRAY, "font_text", 60, ARCADE_MACHINE_RES_X / 2 - 100, ARCADE_MACHINE_RES_Y / 2 + 350);
+        draw_text("Attempting to update ["s+std::to_string(i)+"/"+std::to_string(max_tries)+"]...", COLOR_SLATE_GRAY, "font_text", 60, ARCADE_MACHINE_RES_X / 2 - 100, ARCADE_MACHINE_RES_Y / 2 + 350);
         refresh_screen();
-        
-    } while (!this->m_config.getFromGit("https://github.com/thoth-tech/arcade-games.git", "games"));
+        bool updated = this->updateGames();
+        if(updated)
+        {
+            process_events();
+            clear_screen();
+            this->m_introSplashkit.drawTitlePage();
+            draw_text("Successfully updated", COLOR_SLATE_GRAY, "font_text", 60, ARCADE_MACHINE_RES_X / 2 - 100, ARCADE_MACHINE_RES_Y / 2 + 350);
+            refresh_screen();
+            break;
+        }
+        else 
+        {
+            process_events();
+            clear_screen();
+            this->m_introSplashkit.drawTitlePage();
+            draw_text("Failed to update", COLOR_SLATE_GRAY, "font_text", 60, ARCADE_MACHINE_RES_X / 2 - 100, ARCADE_MACHINE_RES_Y / 2 + 350);
+            refresh_screen();
+            break;
+        }
+    }
+}
+
+bool ArcadeMachine::updateGames()
+{
+    int python_found = std::system("skm python3 --version");
+#ifdef _WIN32
+    if (python_found != 0)
+#else
+    if (!(WIFEXITED(python_found) && (WEXITSTATUS(python_found) == 0)))
+#endif
+    {
+        std::cerr << "[Updater] Python was not found. Please make sure SplashKit is installed and it can work with Python." << std::endl;
+        return false;
+    }
+
+    int updater_exit_status = std::system("skm python3 ./updater.py --destination-path=./games/games --updater-info-file=updater_info.json");
+#ifdef _WIN32
+    // intentional: WIFEXITED/WIFSIGNALED/WEXITSTATUS don't exist on Windows
+    int updater_exit_code = updater_exit_status
+    if(true)
+#else
+    int updater_exit_code = WEXITSTATUS(updater_exit_status);
+    if(WIFSIGNALED(updater_exit_status))
+    {
+        std::cerr << "[Updater] Python has been terminated by exit code " << WTERMSIG(updater_exit_status) << std::endl;
+        return false;
+    }
+    else if (WIFEXITED(updater_exit_status))
+#endif
+    {
+        if(updater_exit_code == 0)
+        {
+            // successfully updated
+            std::cout << ("[Updater] successfully updated the games") << std::endl;
+            return true;
+        }
+        else 
+        {
+            if(updater_exit_code == 1)
+            {
+                std::cerr << "Updater script is not found" << std::endl;
+            }
+            // error
+            std::cerr << ("Could not update, exit code from updater script: ") << updater_exit_code << std::endl;
+            return false;
+        }
+    }
+    return false;
 }
 
 /**

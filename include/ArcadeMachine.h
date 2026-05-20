@@ -107,6 +107,7 @@ public:
     void playThothTechIntro();
     void playArcadeTeamIntro();
     void playSplashKitIntro(); // Draws the Splashkit Productions logo to the screen and fetches new games from Git repo
+    bool updateGames();
     void printConfigs();
     void exitProgram();
 
