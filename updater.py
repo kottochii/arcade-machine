@@ -60,12 +60,17 @@ def file_readable_to_updater(file_name: str):
 
 def download_and_unpack(file_name: str, url: str, destination_path: str|Path):
     if file_name.endswith('.tar.gz'):
-        response = requests.get(url, stream=True)
-        if response.status_code == 200:
-                with tarfile.open(fileobj=response.raw, mode='r:gz') as tar:
-                    tar.extractall(path=destination_path)
-        else:
-            sys.stderr.write("Error: failed to download from the url " + url + ". Status code: " + str(response.status_code) + "\n")
+        try:
+            response = requests.get(url, stream=True)
+            if response.status_code == 200:
+                    with tarfile.open(fileobj=response.raw, mode='r:gz') as tar:
+                        tar.extractall(path=destination_path)
+            else:
+                sys.stderr.write("Error: failed to download from the url " + url + ". Status code: " + str(response.status_code) + "\n")
+
+        except ConnectionError:
+            sys.stderr.write("Failed to connect to the internet. No updates have been pulled. The old game might have been deleted.")
+            exit(14)
     else:
         sys.stderr.write(f"Error: {file_name} is not a .tar.gz file and hence may not be unpacked here")
 
@@ -162,9 +167,12 @@ def check_updates(fd, destination_system, destination_architecture, destination_
         fd.write("{}")
 
 
-
-    response = requests.get("https://api.github.com/repos/" + GITHUB_REPO + "/releases/latest");
-    release_info = response.json()
+    try:
+        response = requests.get("https://api.github.com/repos/" + GITHUB_REPO + "/releases/latest");
+        release_info = response.json()
+    except ConnectionError:
+        sys.stderr.write("Failed to connect to the internet. No updates have been pulled.")
+        exit(13)
 
 
     # destination path is a file. We don't want to remove it unless required.
