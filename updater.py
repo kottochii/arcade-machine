@@ -45,13 +45,11 @@ def profile_architecture(architecture_title: str):
     arch = platform.machine().lower()
 
     if "aarch64" in arch or "arm64" in arch:
-        # return "arm64"
-        return "arm"
+        return "arm64"
     elif "arm" in arch:
         return "arm"
     elif "x86_64" in arch or "amd64" in arch or "x64" in arch:
-        # return "x64"
-        return "x86"
+        return "x64"
     elif "i386" in arch or "i686" in arch or "x86" in arch:
         return "x86"
     else:
