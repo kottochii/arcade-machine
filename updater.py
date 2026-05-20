@@ -16,7 +16,7 @@ updater_info_path = "./updater.json"
 # Destination path
 dest_path = './games'
 # Github repository to check for updates. Format: "owner/repo"
-GITHUB_REPO = "kottochii/thoth-arcade-games"
+GITHUB_REPO = "thoth-tech/arcade-games"
 
 def clear_file(fd):
     fd.truncate(0)
